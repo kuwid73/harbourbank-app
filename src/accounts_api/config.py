@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=5, ge=1)
     db_pool_timeout_seconds: float = Field(default=5.0, gt=0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    environment: str = "local"   # dev / qa / prod; shown in the UI and logs
     app_version: str = "dev"
     git_sha: str = "unknown"
 

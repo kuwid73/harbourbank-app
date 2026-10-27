@@ -21,7 +21,7 @@ from .routes import router
 log = logging.getLogger("accounts_api")
 
 # Probes and scrapes are logged at DEBUG so they don't drown out real traffic
-QUIET_ROUTES = {"/healthz", "/readyz", "/metrics"}
+QUIET_ROUTES = {"/healthz", "/readyz", "/metrics", "/info"}
 
 # Expected business errors -> HTTP status and a stable error code (checked in order)
 LEDGER_ERRORS = [
@@ -51,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.info("accounts-api started", extra={
             "version": settings.app_version,
             "git_sha": settings.git_sha,
+            "environment": settings.environment,
             "daily_transfer_limit_cents": settings.daily_transfer_limit_cents,
             "db_pool_size": settings.db_pool_size,
         })

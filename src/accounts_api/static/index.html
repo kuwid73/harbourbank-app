@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harbour Bank</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --surface: #ffffff; --text: #17202a; --muted: #5d6d7e; --border: #d5dbe1;
+    --brand: #0b4f6c; --brand-text: #ffffff; --accent: #1479a3;
+    --ok: #1e7b4a; --ok-bg: #e5f4ec; --err: #b03a2e; --err-bg: #fbe9e7; --warn: #8a5a00; --warn-bg: #fff4dc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11161c; --surface: #1a222b; --text: #e6ebf0; --muted: #9aa7b4; --border: #2c3845;
+      --brand: #0d3a50; --accent: #4fb3dc;
+      --ok: #6fd39b; --ok-bg: #173226; --err: #f08a7e; --err-bg: #3a1d1a; --warn: #f2c66d; --warn-bg: #3a2e14;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--brand); color: var(--brand-text); padding: 14px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: .3px; }
+  .badge { font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; background: #ffffff26; text-transform: uppercase; }
+  .badge.prod { background: #c0392b; } .badge.qa { background: #b9770e; } .badge.dev { background: #1e8449; }
+  header .version { margin-left: auto; font-size: 12px; opacity: .8; font-family: ui-monospace, monospace; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 16px; grid-template-columns: 1fr 1.4fr; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  section h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .full { grid-column: 1 / -1; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, button { font: inherit; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+  button { padding: 8px 16px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; margin-top: 12px; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .accounts { display: grid; gap: 8px; }
+  .account { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  .account.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .account .number { font-family: ui-monospace, monospace; font-size: 13px; }
+  .account .status { font-size: 12px; color: var(--warn); text-transform: uppercase; }
+  .account .balance { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .notice { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 14px; }
+  .notice.ok { background: var(--ok-bg); color: var(--ok); }
+  .notice.err { background: var(--err-bg); color: var(--err); }
+  .notice.warn { background: var(--warn-bg); color: var(--warn); }
+  .notice .ref { display: block; font-size: 12px; opacity: .85; font-family: ui-monospace, monospace; margin-top: 4px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .credit { color: var(--ok); } .debit { color: var(--text); }
+  .muted { color: var(--muted); font-size: 14px; }
+  details summary { cursor: pointer; color: var(--muted); }
+  .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚓ Harbour Bank</h1>
+  <span id="env" class="badge">…</span>
+  <span class="version" id="version"></span>
+</header>
+
+<main>
+  <section>
+    <h2>Customer</h2>
+    <select id="customer" aria-label="Customer"></select>
+    <h2 style="margin-top:18px">Accounts</h2>
+    <div id="accounts" class="accounts"><p class="muted">Select a customer.</p></div>
+  </section>
+
+  <section>
+    <h2>Transfer money</h2>
+    <form id="transfer-form">
+      <label for="from">From</label>
+      <select id="from" required></select>
+      <label for="to">To account number</label>
+      <input id="to" placeholder="HB0000000000" required pattern="[Hh][Bb][0-9]{10}" autocomplete="off">
+      <label for="amount">Amount</label>
+      <input id="amount" placeholder="0.00" required inputmode="decimal">
+      <label for="reference">Reference</label>
+      <input id="reference" maxlength="140" placeholder="e.g. Rent">
+      <button id="send">Send</button>
+    </form>
+    <div id="transfer-result"></div>
+  </section>
+
+  <section class="full">
+    <h2>Statement <span id="statement-account" class="muted"></span></h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Reference</th><th class="num">Amount</th><th class="num">Balance</th></tr></thead>
+      <tbody id="statement"><tr><td colspan="4" class="muted">Select an account.</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="full">
+    <details>
+      <summary>Demo tools (branch staff)</summary>
+      <div class="row">
+        <form id="customer-form">
+          <label for="new-name">New customer name</label><input id="new-name" required>
+          <label for="new-email">Email</label><input id="new-email" type="email" required>
+          <button>Create customer</button>
+        </form>
+        <div>
+          <label>Open account for selected customer</label>
+          <select id="new-currency"><option>USD</option><option>EUR</option><option>GBP</option></select>
+          <button id="open-account" type="button">Open account</button>
+        </div>
+        <form id="deposit-form">
+          <label for="deposit-amount">Cash deposit into selected account</label>
+          <input id="deposit-amount" placeholder="0.00" required inputmode="decimal">
+          <button>Deposit</button>
+        </form>
+      </div>
+      <div id="tools-result"></div>
+    </details>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { customers: [], accounts: [], selected: null, pendingTransfer: null };
+
+const REJECT_REASONS = {
+  insufficient_funds: "Insufficient funds",
+  account_frozen: "An account involved is frozen",
+  account_closed: "An account involved is closed",
+  currency_mismatch: "Accounts are in different currencies",
+  daily_limit_exceeded: "Daily transfer limit reached",
+};
+
+// --- helpers -------------------------------------------------------------------------
+
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const child of children) node.append(child);   // strings become text nodes: never parsed as HTML
+  return node;
+}
+
+function money(cents, currency) {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(cents / 100);
+}
+
+// "125.50" -> 12550, using string arithmetic: no floating-point rounding
+function toCents(text) {
+  const value = text.trim();
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+}
+
+function masked(accountNumber) { return "HB******" + accountNumber.slice(-4); }
+
+function newKey() {
+  return crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(16).slice(2);
+}
+
+function notice(target, kind, message, requestId) {
+  const box = el("div", { className: `notice ${kind}` }, message);
+  if (requestId) box.append(el("span", { className: "ref" }, `Reference: ${requestId}`));
+  $(target).replaceChildren(box);
+  return box;
+}
+
+async function api(method, path, body, headers = {}) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json", ...headers },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  return {
+    ok: res.ok, status: res.status, data,
+    requestId: res.headers.get("X-Request-ID"),
+    replayed: res.headers.get("Idempotent-Replayed") === "true",
+  };
+}
+
+function errorText(r) {
+  if (r.data?.reject_reason) return REJECT_REASONS[r.data.reject_reason] || r.data.reject_reason;
+  if (r.data?.error === "db_pool_exhausted" || r.data?.error === "database_unavailable")
+    return "We're experiencing technical difficulties. Please try again shortly.";
+  if (typeof r.data?.detail === "string") return r.data.detail;
+  return `Request failed (HTTP ${r.status})`;
+}
+
+function remember(key, value) { try { localStorage.setItem(key, value); } catch { /* storage unavailable */ } }
+function recall(key) { try { return localStorage.getItem(key); } catch { return null; } }
+
+// --- data loading ----------------------------------------------------------------------
+
+async function loadInfo() {
+  const r = await api("GET", "/info");
+  if (!r.ok) return;
+  $("env").textContent = r.data.environment;
+  $("env").classList.add(r.data.environment.toLowerCase());
+  $("version").textContent = `accounts-api ${r.data.version} (${r.data.git_sha})`;
+  document.title = `Harbour Bank · ${r.data.environment.toUpperCase()}`;
+}
+
+async function loadCustomers(selectId) {
+  const r = await api("GET", "/customers?limit=200");
+  state.customers = r.ok ? r.data.filter((c) => c.active) : [];
+  const select = $("customer");
+  select.replaceChildren(el("option", { value: "" }, state.customers.length ? "Choose a customer…" : "No customers yet"));
+  for (const c of state.customers) select.append(el("option", { value: c.id }, c.full_name));
+  const wanted = selectId || recall("customer");
+  if (wanted && state.customers.some((c) => c.id === wanted)) select.value = wanted;
+  await loadAccounts();
+}
+
+async function loadAccounts() {
+  const customerId = $("customer").value;
+  remember("customer", customerId);
+  if (!customerId) {
+    state.accounts = [];
+  } else {
+    const r = await api("GET", `/accounts?customer_id=${customerId}`);
+    state.accounts = r.ok ? r.data : [];
+  }
+  if (!state.accounts.some((a) => a.id === state.selected)) state.selected = state.accounts[0]?.id ?? null;
+  renderAccounts();
+  await loadStatement();
+}
+
+function renderAccounts() {
+  const list = $("accounts");
+  if (!state.accounts.length) {
+    list.replaceChildren(el("p", { className: "muted" }, $("customer").value ? "No accounts yet." : "Select a customer."));
+  } else {
+    list.replaceChildren(...state.accounts.map((a) => {
+      const card = el("div", { className: "account" + (a.id === state.selected ? " selected" : "") },
+        el("div", {}, el("div", { className: "number" }, a.account_number),
+          a.status !== "active" ? el("div", { className: "status" }, a.status) : ""),
+        el("div", { className: "balance" }, money(a.balance_cents, a.currency)));
+      card.addEventListener("click", () => { state.selected = a.id; renderAccounts(); loadStatement(); });
+      return card;
+    }));
+  }
+  const from = $("from");
+  from.replaceChildren(...state.accounts.filter((a) => a.status === "active").map((a) =>
+    el("option", { value: a.id }, `${a.account_number} · ${money(a.balance_cents, a.currency)}`)));
+  if (state.accounts.some((a) => a.id === state.selected && a.status === "active")) from.value = state.selected;
+}
+
+async function loadStatement() {
+  const account = state.accounts.find((a) => a.id === state.selected);
+  const body = $("statement");
+  $("statement-account").textContent = account ? `· ${account.account_number}` : "";
+  if (!account) {
+    body.replaceChildren(el("tr", {}, el("td", { colSpan: 4, className: "muted" }, "Select an account.")));
+    return;
+  }
+  const r = await api("GET", `/accounts/${account.id}/statement?limit=50`);
+  if (!r.ok) {
+    body.replaceChildren(el("tr", {}, el("td", { colSpan: 4, className: "muted" }, errorText(r))));
+    return;
+  }
+  if (!r.data.length) {
+    body.replaceChildren(el("tr", {}, el("td", { colSpan: 4, className: "muted" }, "No transactions in the last 30 days.")));
+    return;
+  }
+  body.replaceChildren(...r.data.map((line) => el("tr", {},
+    el("td", {}, new Date(line.created_at).toLocaleString()),
+    el("td", {}, line.reference || "—"),
+    el("td", { className: "num " + (line.amount_cents > 0 ? "credit" : "debit") },
+      (line.amount_cents > 0 ? "+" : "") + money(line.amount_cents, account.currency)),
+    el("td", { className: "num" }, money(line.balance_after_cents, account.currency)))));
+}
+
+// --- transfer: the idempotency key is kept until the bank gives a definite answer -------
+
+async function sendTransfer(event) {
+  event?.preventDefault();
+  const cents = toCents($("amount").value);
+  if (cents === null || cents === 0) { notice("transfer-result", "err", "Enter an amount like 125.50"); return; }
+
+  const toNumber = $("to").value.trim().toUpperCase();
+  const lookup = await api("GET", `/accounts?account_number=${encodeURIComponent(toNumber)}`);
+  if (!lookup.ok || !lookup.data.length) {
+    notice("transfer-result", "err", `No account found with number ${toNumber}`, lookup.requestId);
+    return;
+  }
+  const body = { from_account_id: $("from").value, to_account_id: lookup.data[0].id,
+                 amount_cents: cents, reference: $("reference").value.trim() };
+
+  // Reuse the key only when retrying the exact same transfer
+  if (!state.pendingTransfer || JSON.stringify(state.pendingTransfer.body) !== JSON.stringify(body)) {
+    state.pendingTransfer = { key: newKey(), body };
+  }
+
+  $("send").disabled = true;
+  let r;
+  try {
+    r = await api("POST", "/transfers", body, { "Idempotency-Key": state.pendingTransfer.key });
+  } catch {
+    const box = notice("transfer-result", "warn",
+      "Connection problem: we couldn't confirm this transfer. Retrying is safe - you will never be charged twice.");
+    const retry = el("button", { className: "secondary", type: "button" }, "Retry safely");
+    retry.addEventListener("click", sendTransfer);
+    box.append(el("div", {}, retry));
+    return;
+  } finally {
+    $("send").disabled = false;
+  }
+
+  if (r.status >= 500) {        // no definite answer: keep the key so a retry is safe
+    notice("transfer-result", "err", errorText(r), r.requestId);
+    return;
+  }
+  state.pendingTransfer = null;
+  if (r.status === 201) {
+    const account = state.accounts.find((a) => a.id === body.from_account_id);
+    const sent = `Sent ${money(cents, account?.currency || "USD")} to ${masked(toNumber)}.`;
+    notice("transfer-result", "ok", r.replayed ? `${sent} (Already processed - you were not charged again.)` : sent, r.requestId);
+    $("transfer-form").reset();
+  } else {
+    notice("transfer-result", "err", errorText(r), r.requestId);
+  }
+  await loadAccounts();
+}
+
+// --- demo tools -------------------------------------------------------------------------
+
+async function createCustomer(event) {
+  event.preventDefault();
+  const r = await api("POST", "/customers", { full_name: $("new-name").value.trim(), email: $("new-email").value.trim() });
+  if (!r.ok) { notice("tools-result", "err", errorText(r), r.requestId); return; }
+  notice("tools-result", "ok", `Customer ${r.data.full_name} created.`);
+  $("customer-form").reset();
+  await loadCustomers(r.data.id);
+}
+
+async function openAccount() {
+  if (!$("customer").value) { notice("tools-result", "err", "Select a customer first."); return; }
+  const r = await api("POST", "/accounts", { customer_id: $("customer").value, currency: $("new-currency").value });
+  if (!r.ok) { notice("tools-result", "err", errorText(r), r.requestId); return; }
+  notice("tools-result", "ok", `Account ${r.data.account_number} opened.`);
+  state.selected = r.data.id;
+  await loadAccounts();
+}
+
+async function deposit(event) {
+  event.preventDefault();
+  const cents = toCents($("deposit-amount").value);
+  if (!state.selected || !cents) { notice("tools-result", "err", "Select an account and enter an amount."); return; }
+  const r = await api("POST", `/accounts/${state.selected}/deposits`, { amount_cents: cents, reference: "Cash deposit" },
+                      { "Idempotency-Key": newKey() });
+  if (r.status !== 201) { notice("tools-result", "err", errorText(r), r.requestId); return; }
+  notice("tools-result", "ok", "Deposit completed.");
+  $("deposit-form").reset();
+  await loadAccounts();
+}
+
+$("customer").addEventListener("change", () => { state.selected = null; loadAccounts(); });
+$("transfer-form").addEventListener("submit", sendTransfer);
+$("customer-form").addEventListener("submit", createCustomer);
+$("open-account").addEventListener("click", openAccount);
+$("deposit-form").addEventListener("submit", deposit);
+
+loadInfo();
+loadCustomers();
+</script>
+</body>
+</html>

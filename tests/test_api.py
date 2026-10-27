@@ -191,3 +191,25 @@ def test_logs_never_contain_full_account_number(client):
     assert f"HB******{number[-4:]}" in output
     opened = next(json.loads(l) for l in output.splitlines() if '"account opened"' in l)
     assert opened["currency"] == "USD" and opened["request_id"]
+
+
+# --- UI -------------------------------------------------------------------------------
+
+def test_internet_banking_page_is_served(client):
+    r = client.get("/")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    assert "Harbour Bank" in r.text
+
+
+def test_info_reports_environment_and_version(database_url):
+    app = create_app(Settings(database_url=database_url, environment="qa", app_version="1.2.3", git_sha="abc1234"))
+    with TestClient(app) as c:
+        assert c.get("/info").json() == {"service": "accounts-api", "environment": "qa",
+                                         "version": "1.2.3", "git_sha": "abc1234"}
+
+
+def test_find_account_by_number(client):
+    account = new_account(client)
+    found = client.get("/accounts", params={"account_number": account["account_number"].lower()}).json()
+    assert [a["id"] for a in found] == [account["id"]]
+    assert client.get("/accounts", params={"account_number": "HB0000000000"}).json() == []

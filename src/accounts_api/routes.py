@@ -1,9 +1,11 @@
 import logging
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import FileResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +29,7 @@ from .schemas import (
 
 log = logging.getLogger("accounts_api")
 router = APIRouter()
+INDEX_HTML = Path(__file__).parent / "static" / "index.html"
 
 
 def get_session(request: Request):
@@ -116,10 +119,13 @@ def open_account(body: AccountCreate, request: Request, db: Db):
 
 
 @router.get("/accounts", response_model=list[AccountOut], tags=["accounts"])
-def list_accounts(db: Db, customer_id: uuid.UUID | None = None, limit: int = Query(50, le=200), offset: int = 0):
+def list_accounts(db: Db, customer_id: uuid.UUID | None = None, account_number: str | None = None,
+                  limit: int = Query(50, le=200), offset: int = 0):
     query = select(Account).where(Account.customer_id.is_not(None))
     if customer_id:
         query = query.where(Account.customer_id == customer_id)
+    if account_number:
+        query = query.where(Account.account_number == account_number.strip().upper())
     return db.scalars(query.order_by(Account.opened_at).limit(limit).offset(offset)).all()
 
 
@@ -188,7 +194,19 @@ def reverse_transfer(transfer_id: uuid.UUID, body: ReversalCreate, key: Idempote
     return _transfer_response(request, response, transfer)
 
 
-# --- operations -------------------------------------------------------------------
+# --- UI and operations ------------------------------------------------------------
+
+@router.get("/", include_in_schema=False)
+def internet_banking():
+    return FileResponse(INDEX_HTML, media_type="text/html")
+
+
+@router.get("/info", tags=["ops"])
+def info(request: Request):
+    settings = request.app.state.settings
+    return {"service": "accounts-api", "environment": settings.environment,
+            "version": settings.app_version, "git_sha": settings.git_sha}
+
 
 @router.get("/healthz", tags=["ops"])
 def healthz():
