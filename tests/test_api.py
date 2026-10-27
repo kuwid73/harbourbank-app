@@ -54,7 +54,8 @@ def test_transfer_statement_and_reversal(client):
     assert (balance(client, alice), balance(client, bob)) == (70_00, 30_00)
 
     lines = client.get(f"/accounts/{alice['id']}/statement").json()
-    assert [(l["amount_cents"], l["balance_after_cents"]) for l in lines] == [(-30_00, 70_00), (100_00, 100_00)]
+    movements = [(line["amount_cents"], line["balance_after_cents"]) for line in lines]
+    assert movements == [(-30_00, 70_00), (100_00, 100_00)]
 
     r = client.post(f"/transfers/{transfer['id']}/reversal", json={}, headers=idem())
     assert r.status_code == 201 and r.json()["reversal_of_id"] == transfer["id"]
@@ -79,7 +80,9 @@ def test_account_lifecycle(client):
 
 def test_transfer_requires_idempotency_key(client):
     alice, bob = new_account(client, 10_00), new_account(client)
-    r = client.post("/transfers", json={"from_account_id": alice["id"], "to_account_id": bob["id"], "amount_cents": 1_00})
+    r = client.post(
+        "/transfers", json={"from_account_id": alice["id"], "to_account_id": bob["id"], "amount_cents": 1_00}
+    )
     assert r.status_code == 422
 
 
@@ -189,7 +192,7 @@ def test_logs_never_contain_full_account_number(client):
     number = account["account_number"]
     assert number not in output
     assert f"HB******{number[-4:]}" in output
-    opened = next(json.loads(l) for l in output.splitlines() if '"account opened"' in l)
+    opened = next(json.loads(line) for line in output.splitlines() if '"account opened"' in line)
     assert opened["currency"] == "USD" and opened["request_id"]
 
 

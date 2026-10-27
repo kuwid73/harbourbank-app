@@ -19,6 +19,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # --- runtime: slim image, no build tools, non-root ---------------------------------------
 FROM python:3.13-slim-trixie
+# pip (and its vendored urllib3/msgpack) is unused at runtime - uv installed everything in the
+# build stage - so remove it rather than carry its CVEs. No package manager also means less to abuse.
+RUN python -m pip uninstall --yes --no-cache-dir pip \
+ && rm -rf /usr/local/lib/python3.13/ensurepip
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 WORKDIR /app
@@ -28,6 +32,16 @@ COPY alembic.ini ./
 COPY migrations ./migrations
 
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+# Set by CI; declared last so a new commit doesn't invalidate the cached layers above.
+# The app reports them at /info and in the app_info metric, so every pod can be traced to its commit.
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+ENV APP_VERSION=$APP_VERSION GIT_SHA=$GIT_SHA
+LABEL org.opencontainers.image.source="https://github.com/kuwid73/harbourbank-app" \
+      org.opencontainers.image.title="Harbour Bank accounts-api" \
+      org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$GIT_SHA
 # Numeric UID so Kubernetes can verify runAsNonRoot
 USER 10001
 EXPOSE 8000

@@ -13,7 +13,7 @@ Concurrency rules:
 import secrets
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -94,7 +94,7 @@ def set_account_status(session: Session, *, account_id: uuid.UUID, status: Accou
         if status == AccountStatus.CLOSED:
             if account.balance_cents != 0:
                 raise InvalidRequest("account balance must be zero before closing")
-            account.closed_at = datetime.now(timezone.utc)
+            account.closed_at = datetime.now(UTC)
         account.status = status
         session.commit()
         return account
@@ -246,7 +246,9 @@ def _apply(session, kind, idempotency_key, from_id, to_id, amount_cents, referen
         # Lock the original so two different reversal requests are serialised
         original = _locked(session, Transfer, reversal_of_id)
         if original.status != TransferStatus.COMPLETED:
-            raise InvalidRequest(f"transfer {reversal_of_id} is {original.status}, only completed transfers can be reversed")
+            raise InvalidRequest(
+                f"transfer {reversal_of_id} is {original.status}, only completed transfers can be reversed"
+            )
 
     # Lock both accounts in a fixed order (sorted ids) to avoid deadlocks
     locked = {account_id: _locked(session, Account, account_id) for account_id in sorted({from_id, to_id})}
@@ -307,14 +309,17 @@ def _reject_reason(session, kind, source: Account, target: Account, amount_cents
             return RejectReason.INSUFFICIENT_FUNDS
         # Safe from races: the source account row is locked, so concurrent transfers
         # from it are serialised and each sees the previous one's total
-        if kind == TransferKind.TRANSFER and daily_limit_cents is not None:
-            if _sent_today_cents(session, source.id) + amount_cents > daily_limit_cents:
-                return RejectReason.DAILY_LIMIT_EXCEEDED
+        if (
+            kind == TransferKind.TRANSFER
+            and daily_limit_cents is not None
+            and _sent_today_cents(session, source.id) + amount_cents > daily_limit_cents
+        ):
+            return RejectReason.DAILY_LIMIT_EXCEEDED
     return None
 
 
 def _sent_today_cents(session: Session, account_id: uuid.UUID) -> int:
-    start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     return session.scalar(
         select(func.coalesce(func.sum(Transfer.amount_cents), 0)).where(
             Transfer.from_account_id == account_id,

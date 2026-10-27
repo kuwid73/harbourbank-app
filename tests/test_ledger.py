@@ -42,7 +42,7 @@ def test_transfer_moves_money_and_writes_two_entries(session, new_account):
 
 
 def test_deposit_is_funded_by_settlement_account(session, new_account):
-    alice = new_account(250_00)
+    new_account(250_00)
 
     settlement = ledger.settlement_account(session, "USD")
     assert balance(session, settlement) == -250_00   # the bank's side of the books
@@ -214,7 +214,7 @@ def run_concurrently(engine, n, fn):
             barrier.wait()
             try:
                 results[i] = fn(s)
-            except Exception as e:  # surfaced below
+            except Exception as e:  # noqa: BLE001 - surfaced below
                 errors.append(e)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]

@@ -9,7 +9,7 @@ import json
 import logging
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _ACCOUNT_NUMBER = re.compile(r"\bHB\d{6}(\d{4})\b")
 _EMAIL = re.compile(r"\b([A-Za-z0-9])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
@@ -29,7 +29,7 @@ def mask_pii(text: str) -> str:
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         entry = {
-            "ts": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="milliseconds"),
+            "ts": datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds"),
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),

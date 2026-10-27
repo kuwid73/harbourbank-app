@@ -11,7 +11,6 @@ from testcontainers.community.postgres import PostgresContainer
 from accounts_api import ledger
 from accounts_api.models import Customer
 
-
 ALEMBIC_INI = Path(__file__).parent.parent / "alembic.ini"
 
 
@@ -60,6 +59,8 @@ def new_account(session):
         session.commit()
         account = ledger.open_account(session, customer_id=customer.id, currency=currency)
         if balance_cents:
-            ledger.deposit(session, idempotency_key=str(uuid.uuid4()), account_id=account.id, amount_cents=balance_cents)
+            ledger.deposit(
+                session, idempotency_key=str(uuid.uuid4()), account_id=account.id, amount_cents=balance_cents
+            )
         return account
     return make

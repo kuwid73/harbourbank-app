@@ -1,7 +1,7 @@
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -51,9 +51,9 @@ def _get_or_404(db: Session, model, row_id: uuid.UUID):
 def _commit_unique(db: Session, message: str) -> None:
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise ledger.Conflict(message)
+        raise ledger.Conflict(message) from exc
 
 
 def _transfer_response(request: Request, response: Response, transfer: Transfer) -> Transfer:
@@ -153,7 +153,7 @@ def statement(account_id: uuid.UUID, db: Db,
               to: datetime | None = None,
               limit: int = Query(100, le=500)):
     _get_or_404(db, Account, account_id)
-    to = to or datetime.now(timezone.utc)
+    to = to or datetime.now(UTC)
     from_ = from_ or to - timedelta(days=30)
     rows = db.execute(
         select(LedgerEntry, Transfer.reference)
@@ -222,7 +222,7 @@ def readyz(request: Request, response: Response):
         with request.app.state.engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return {"status": "ready"}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure means not ready
         response.status_code = 503
         log.warning("readiness check failed", extra={"error_type": type(exc).__name__})
         return {"status": "unavailable", "error_type": type(exc).__name__}
