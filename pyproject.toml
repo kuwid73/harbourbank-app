@@ -6,10 +6,16 @@ requires-python = ">=3.13"
 dependencies = [
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
+    "fastapi>=0.162.0",
+    "uvicorn[standard]>=0.54.0",
+    "pydantic-settings>=2.16.1",
+    "prometheus-client>=0.26.0",
+    "alembic>=1.20.1",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.16.0",
     "pytest>=8",
     "testcontainers[postgres]>=4",
 ]

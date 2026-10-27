@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Index, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -108,13 +108,20 @@ class Transfer(Base):
     reversal_of_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("transfers.id"), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
+    # Not stored: set by the ledger when an idempotent retry returns this existing transfer
+    replayed = False
+
 
 class LedgerEntry(Base):
     __tablename__ = "ledger_entries"
+    __table_args__ = (
+        # Serves statements: one account, a date range, newest first
+        Index("ix_ledger_entries_account_created", "account_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     transfer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("transfers.id"), index=True)
-    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"), index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
     amount_cents: Mapped[int] = mapped_column(BigInteger)          # negative = debit, positive = credit
     balance_after_cents: Mapped[int] = mapped_column(BigInteger)   # running balance, for statements
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

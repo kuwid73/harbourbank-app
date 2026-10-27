@@ -46,7 +46,11 @@ class InvalidRequest(LedgerError):
     pass
 
 
-class IdempotencyConflict(LedgerError):
+class Conflict(LedgerError):
+    """The request clashes with existing data (e.g. a duplicate email)."""
+
+
+class IdempotencyConflict(Conflict):
     """The idempotency key was already used for a different request."""
 
 
@@ -77,6 +81,37 @@ def open_account(session: Session, *, customer_id: uuid.UUID, currency: str) -> 
     session.add(account)
     session.commit()
     return account
+
+
+def set_account_status(session: Session, *, account_id: uuid.UUID, status: AccountStatus) -> Account:
+    """Freeze, unfreeze or close an account. Locks the row so no transfer is mid-flight."""
+    try:
+        account = _locked(session, Account, account_id)
+        if account.kind != AccountKind.CUSTOMER:
+            raise InvalidRequest("internal accounts cannot be changed")
+        if account.status == AccountStatus.CLOSED:
+            raise InvalidRequest("closed accounts cannot be changed")
+        if status == AccountStatus.CLOSED:
+            if account.balance_cents != 0:
+                raise InvalidRequest("account balance must be zero before closing")
+            account.closed_at = datetime.now(timezone.utc)
+        account.status = status
+        session.commit()
+        return account
+    except LedgerError:
+        session.rollback()
+        raise
+
+
+def deactivate_customer(session: Session, *, customer_id: uuid.UUID) -> Customer:
+    customer = session.get(Customer, customer_id)
+    if customer is None:
+        raise NotFound(f"customer {customer_id} not found")
+    if any(account.status != AccountStatus.CLOSED for account in customer.accounts):
+        raise InvalidRequest("close all of the customer's accounts first")
+    customer.active = False
+    session.commit()
+    return customer
 
 
 def settlement_account(session: Session, currency: str) -> Account:
@@ -297,6 +332,7 @@ def _find_by_key(session: Session, idempotency_key: str) -> Transfer | None:
 def _replay(existing: Transfer, from_id, to_id, amount_cents) -> Transfer:
     if (existing.from_account_id, existing.to_account_id, existing.amount_cents) != (from_id, to_id, amount_cents):
         raise IdempotencyConflict(f"idempotency key {existing.idempotency_key!r} was used for a different request")
+    existing.replayed = True
     return existing
 
 
