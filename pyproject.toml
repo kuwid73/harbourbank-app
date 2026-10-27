@@ -1,0 +1,25 @@
+[project]
+name = "harbourbank-accounts"
+version = "0.1.0"
+description = "Harbour Bank accounts-api: customers, accounts and double-entry transfers"
+requires-python = ">=3.13"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "testcontainers[postgres]>=4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/accounts_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
