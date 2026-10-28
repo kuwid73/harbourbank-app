@@ -199,7 +199,9 @@ async function loadInfo() {
   if (!r.ok) return;
   $("env").textContent = r.data.environment;
   $("env").classList.add(r.data.environment.toLowerCase());
-  $("version").textContent = `accounts-api ${r.data.version} (${r.data.git_sha})`;
+  // Short SHA matches the image tag (sha-xxxxxxx) in deployments and promotion PRs
+  $("version").textContent = `accounts-api ${r.data.version} · ${r.data.git_sha.slice(0, 7)}`;
+  $("version").title = `commit ${r.data.git_sha}`;
   document.title = `Harbour Bank · ${r.data.environment.toUpperCase()}`;
 }
 
