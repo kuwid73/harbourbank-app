@@ -9,10 +9,10 @@ Invariants (checked by the end-of-day job and the tests):
 Money is always an integer number of cents - never a float.
 """
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Index, String, func
+from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, Enum, ForeignKey, Index, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -35,6 +35,7 @@ class TransferKind(StrEnum):
     TRANSFER = "transfer"   # customer to customer
     DEPOSIT = "deposit"     # settlement account to customer
     REVERSAL = "reversal"   # undoes a previous transfer
+    INTEREST = "interest"   # interest account to customer, posted by the end-of-day job
 
 
 class TransferStatus(StrEnum):
@@ -49,6 +50,12 @@ class RejectReason(StrEnum):
     ACCOUNT_CLOSED = "account_closed"
     CURRENCY_MISMATCH = "currency_mismatch"
     DAILY_LIMIT_EXCEEDED = "daily_limit_exceeded"
+
+
+class EodStatus(StrEnum):
+    RUNNING = "running"
+    OK = "ok"
+    FAILED = "failed"
 
 
 def _enum(cls):
@@ -125,3 +132,20 @@ class LedgerEntry(Base):
     amount_cents: Mapped[int] = mapped_column(BigInteger)          # negative = debit, positive = credit
     balance_after_cents: Mapped[int] = mapped_column(BigInteger)   # running balance, for statements
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EodRun(Base):
+    """One row per business day closed by the end-of-day job: its audit trail and its metrics source."""
+    __tablename__ = "eod_runs"
+
+    business_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    status: Mapped[EodStatus] = mapped_column(_enum(EodStatus))
+    attempts: Mapped[int] = mapped_column(default=1)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accounts_credited: Mapped[int] = mapped_column(default=0)
+    interest_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Result of the ledger check after the run; both must be 0 for status OK
+    imbalance_cents: Mapped[int] = mapped_column(BigInteger, default=0)
+    inconsistencies: Mapped[int] = mapped_column(default=0)
+    error: Mapped[str | None] = mapped_column(String(500))

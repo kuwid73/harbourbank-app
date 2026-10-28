@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
-# One image, two uses:
-#   default command        -> the accounts-api web server
-#   alembic upgrade head   -> the database migration Job (ArgoCD PreSync hook)
+# One image, three uses:
+#   default command               -> the accounts-api web server
+#   alembic upgrade head          -> the database migration Job (ArgoCD Sync hook)
+#   python -m accounts_api.eod    -> the end-of-day batch CronJob
 
 # --- build: resolve and install dependencies with uv ----------------------------------
 FROM ghcr.io/astral-sh/uv:0.11-python3.13-trixie-slim AS build
