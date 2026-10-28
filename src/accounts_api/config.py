@@ -23,6 +23,8 @@ def normalize_db_url(url: str) -> str:
 class Settings(BaseSettings):
     database_url: str
     daily_transfer_limit_cents: int = Field(default=10_000_00, gt=0)
+    # Annual interest on customer balances, in basis points (150 = 1.50%); paid by the end-of-day job
+    interest_rate_bps: int = Field(default=150, ge=0, le=2_000)
     db_pool_size: int = Field(default=5, ge=1)
     db_pool_timeout_seconds: float = Field(default=5.0, gt=0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

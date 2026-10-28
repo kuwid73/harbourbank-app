@@ -32,6 +32,7 @@ from .models import (
 )
 
 SETTLEMENT_PREFIX = "HB-SETTLE-"
+INTEREST_PREFIX = "HB-INTEREST-"
 
 
 class LedgerError(Exception):
@@ -60,6 +61,10 @@ class LedgerReport:
     balances_sum_cents: int
     mismatched_accounts: list[str] = field(default_factory=list)
     unbalanced_transfers: list[uuid.UUID] = field(default_factory=list)
+
+    @property
+    def inconsistencies(self) -> int:
+        return len(self.mismatched_accounts) + len(self.unbalanced_transfers)
 
     @property
     def ok(self) -> bool:
@@ -116,7 +121,16 @@ def deactivate_customer(session: Session, *, customer_id: uuid.UUID) -> Customer
 
 def settlement_account(session: Session, currency: str) -> Account:
     """The bank's internal account that funds deposits in the given currency."""
-    number = f"{SETTLEMENT_PREFIX}{currency.upper()}"
+    return _internal_account(session, SETTLEMENT_PREFIX, currency)
+
+
+def interest_account(session: Session, currency: str) -> Account:
+    """The bank's internal account that pays customer interest (the bank's interest expense)."""
+    return _internal_account(session, INTEREST_PREFIX, currency)
+
+
+def _internal_account(session: Session, prefix: str, currency: str) -> Account:
+    number = f"{prefix}{currency.upper()}"
     account = session.scalar(select(Account).where(Account.account_number == number))
     if account is not None:
         return account
@@ -179,6 +193,24 @@ def transfer(
         amount_cents=amount_cents,
         reference=reference,
         daily_limit_cents=daily_limit_cents,
+    )
+
+
+def pay_interest(
+    session: Session, *, idempotency_key: str, account_id: uuid.UUID, amount_cents: int, reference: str
+) -> Transfer:
+    target = session.get(Account, account_id)
+    if target is None:
+        raise NotFound(f"account {account_id} not found")
+    source = interest_account(session, target.currency)
+    return _execute(
+        session,
+        kind=TransferKind.INTEREST,
+        idempotency_key=idempotency_key,
+        from_id=source.id,
+        to_id=account_id,
+        amount_cents=amount_cents,
+        reference=reference,
     )
 
 
@@ -361,9 +393,10 @@ def verify_ledger(session: Session) -> LedgerReport:
         .group_by(LedgerEntry.transfer_id)
         .having(func.sum(LedgerEntry.amount_cents) != 0)
     ).all()
+    # Postgres returns SUM(bigint) as numeric (a Decimal in Python); money here is always int cents
     return LedgerReport(
-        entries_sum_cents=session.scalar(select(func.coalesce(func.sum(LedgerEntry.amount_cents), 0))),
-        balances_sum_cents=session.scalar(select(func.coalesce(func.sum(Account.balance_cents), 0))),
+        entries_sum_cents=int(session.scalar(select(func.coalesce(func.sum(LedgerEntry.amount_cents), 0)))),
+        balances_sum_cents=int(session.scalar(select(func.coalesce(func.sum(Account.balance_cents), 0)))),
         mismatched_accounts=list(mismatched),
         unbalanced_transfers=list(unbalanced),
     )

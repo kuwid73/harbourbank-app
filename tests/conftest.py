@@ -41,7 +41,7 @@ def engine(database_url):
 def _clean_tables(engine):
     yield
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE ledger_entries, transfers, accounts, customers CASCADE"))
+        conn.execute(text("TRUNCATE eod_runs, ledger_entries, transfers, accounts, customers CASCADE"))
 
 
 @pytest.fixture
