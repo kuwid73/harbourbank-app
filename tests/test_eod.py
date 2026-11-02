@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
-from sqlalchemy import func, select, text, update
+from sqlalchemy import create_engine, func, select, text, update
+from sqlalchemy.exc import OperationalError
 
 from accounts_api import eod, ledger, metrics
 from accounts_api.config import Settings
@@ -138,6 +140,28 @@ def test_only_one_run_at_a_time(engine, session):
 
         other.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": eod.LOCK_KEY})
     assert session.scalar(select(func.count()).select_from(EodRun)) == 0
+
+
+def test_the_run_waits_for_the_database(database_url, monkeypatch):
+    real = create_engine(database_url)
+    really_connect, attempts = real.connect, []
+
+    def connect():
+        attempts.append(1)
+        if len(attempts) < 3:   # not reachable yet, as at lab start
+            raise OperationalError("SELECT 1", {}, Exception("failed to resolve host"))
+        return really_connect()
+
+    monkeypatch.setattr(real, "connect", connect)
+    eod.wait_for_database(real, timeout=5, every=0)
+    assert len(attempts) == 3
+    real.dispose()
+
+
+def test_the_run_gives_up_when_the_database_never_answers():
+    unreachable = create_engine("postgresql+psycopg://x:y@127.0.0.1:1/none")
+    with pytest.raises(OperationalError):
+        eod.wait_for_database(unreachable, timeout=0.2, every=0.1)
 
 
 def test_main_refuses_to_close_a_day_that_is_not_over(monkeypatch, database_url):

@@ -10,6 +10,9 @@ For each business day, oldest first:
 
 A day that fails stops the run, so days are always closed in order; the next run retries it.
 
+The run waits up to DB_WAIT_SECONDS for the database first: at lab start the catch-up Job fires a
+few seconds before the database is reachable, and a failed attempt nobody needs to explain is noise.
+
 Safe to re-run: each interest payment's idempotency key is "eod/<date>/interest/<account>",
 and its amount comes from the balance at midnight (ledger entries before the cutoff), which
 never changes afterwards. A re-run computes the same amounts and the ledger replays them
@@ -21,10 +24,12 @@ to whole cents and paid daily; real banks accrue the fractions and pay monthly.
 import argparse
 import logging
 import sys
+import time as clock
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Engine, func, select, text
 from sqlalchemy.dialects.postgresql import distinct_on
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from . import ledger
@@ -38,6 +43,8 @@ log = logging.getLogger("accounts_api.eod")
 DAYS_PER_YEAR = 365
 MAX_DAYS_PER_RUN = 7          # a long outage is caught up over several runs, oldest days first
 LOCK_KEY = 0x4842_454F_44     # pg advisory lock id ("HBEOD"): one end-of-day run at a time
+DB_WAIT_SECONDS = 60          # how long a run waits for the database before it fails
+DB_RETRY_SECONDS = 2
 
 
 def days_to_close(session: Session, today: date) -> list[date]:
@@ -132,7 +139,23 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def wait_for_database(engine: Engine, timeout: float = DB_WAIT_SECONDS, every: float = DB_RETRY_SECONDS) -> None:
+    """Return once the database answers; re-raise its error if it has not within `timeout` seconds."""
+    deadline = clock.monotonic() + timeout
+    while True:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return
+        except OperationalError as exc:
+            if clock.monotonic() + every > deadline:
+                raise
+            log.warning("database not reachable yet; retrying", extra={"error": str(exc.orig)[:200]})
+            clock.sleep(every)
+
+
 def run(engine: Engine, rate_bps: int, today: date, only: date | None = None) -> int:
+    wait_for_database(engine)
     with engine.connect() as lock:
         if not lock.scalar(text("SELECT pg_try_advisory_lock(:key)"), {"key": LOCK_KEY}):
             log.warning("another end-of-day run is in progress; nothing to do")
