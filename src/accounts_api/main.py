@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from . import ledger, metrics
 from .config import Settings, load_settings
 from .db import make_engine
+from .fraud import FraudClient
 from .logging_setup import configure_logging
 from .routes import router
 
@@ -54,6 +55,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "environment": settings.environment,
             "daily_transfer_limit_cents": settings.daily_transfer_limit_cents,
             "db_pool_size": settings.db_pool_size,
+            "fraud_check_url": settings.fraud_check_url,
+            "fraud_check_timeout_seconds": settings.fraud_check_timeout_seconds,
+            "fraud_check_fallback_limit_cents": settings.fraud_check_fallback_limit_cents,
         })
         yield
         engine.dispose()
@@ -62,6 +66,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = engine
     app.state.sessions = sessionmaker(engine, expire_on_commit=False)
+    app.state.fraud = FraudClient(settings.fraud_check_url, settings.fraud_check_timeout_seconds,
+                                  settings.fraud_check_fallback_limit_cents) if settings.fraud_check_url else None
 
     @app.exception_handler(ledger.LedgerError)
     async def ledger_error(request: Request, exc: ledger.LedgerError):

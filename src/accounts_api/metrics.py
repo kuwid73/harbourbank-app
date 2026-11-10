@@ -28,6 +28,13 @@ HTTP_DURATION = Histogram(
 TRANSFERS = Counter(
     "bank_transfers_total", "Money movements by outcome", ["kind", "status", "reason"]
 )
+FRAUD_CHECKS = Counter(
+    "bank_fraud_checks_total", "Calls to fraud-check by outcome (allow, block, timeout, error)", ["outcome"]
+)
+FRAUD_DURATION = Histogram(
+    "bank_fraud_check_duration_seconds", "Time spent calling fraud-check, including timeouts",
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1),
+)
 APP_INFO = Gauge("app_info", "Running application version (always 1)", ["version", "git_sha"])
 DB_POOL_SIZE = Gauge("db_pool_size", "Configured database connection pool size")
 DB_POOL_IN_USE = Gauge("db_pool_connections_in_use", "Database connections currently checked out")

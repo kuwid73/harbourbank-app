@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
-# One image, three uses:
+# One image, four uses:
 #   default command               -> the accounts-api web server
 #   alembic upgrade head          -> the database migration Job (ArgoCD Sync hook)
 #   python -m accounts_api.eod    -> the end-of-day batch CronJob
+#   uvicorn fraud_check.main:create_app --factory --host 0.0.0.0 --port 8000
+#                                 -> the fraud-check service
 
 # --- build: resolve and install dependencies with uv ----------------------------------
 FROM ghcr.io/astral-sh/uv:0.11-python3.13-trixie-slim AS build

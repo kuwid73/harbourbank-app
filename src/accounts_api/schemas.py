@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import AccountStatus, RejectReason, TransferKind, TransferStatus
+from .models import AccountStatus, FraudCheck, RejectReason, TransferKind, TransferStatus
 
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
@@ -78,6 +78,7 @@ class TransferOut(_FromORM):
     reference: str
     status: TransferStatus
     reject_reason: RejectReason | None
+    fraud_check: FraudCheck | None
     reversal_of_id: uuid.UUID | None
     created_at: datetime
 

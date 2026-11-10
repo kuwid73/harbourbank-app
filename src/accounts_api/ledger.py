@@ -13,12 +13,13 @@ Concurrency rules:
 import secrets
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .fraud import FraudClient, FraudResult
 from .models import (
     Account,
     AccountKind,
@@ -178,12 +179,29 @@ def transfer(
     amount_cents: int,
     daily_limit_cents: int | None,
     reference: str = "",
+    fraud: FraudClient | None = None,
+    request_id: str | None = None,
 ) -> Transfer:
     """Move money between customer accounts.
 
     Business rule violations (insufficient funds, frozen account, ...) do not raise:
     the transfer is recorded with status REJECTED and a reject_reason, for audit.
+
+    With a fraud client, the transfer is scored first. The call happens before any row is locked
+    and with the database connection given back, so a slow fraud check holds no locks or connections.
     """
+    result = None
+    if (fraud is not None and amount_cents > 0 and from_account_id != to_account_id
+            and _find_by_key(session, idempotency_key) is None):   # a retry was scored the first time
+        source = session.get(Account, from_account_id)
+        if source is not None and session.get(Account, to_account_id) is not None:
+            first_payment, last_hour = _fraud_features(session, from_account_id, to_account_id)
+            currency = source.currency
+            session.rollback()   # read-only so far: release the connection during the call
+            result = fraud.assess(from_account_id=from_account_id, to_account_id=to_account_id,
+                                  amount_cents=amount_cents, currency=currency,
+                                  first_payment_to_payee=first_payment, transfers_last_hour=last_hour,
+                                  request_id=request_id)
     return _execute(
         session,
         kind=TransferKind.TRANSFER,
@@ -193,7 +211,21 @@ def transfer(
         amount_cents=amount_cents,
         reference=reference,
         daily_limit_cents=daily_limit_cents,
+        fraud=result,
     )
+
+
+def _fraud_features(session: Session, from_id: uuid.UUID, to_id: uuid.UUID) -> tuple[bool, int]:
+    """What fraud-check needs: is this the first payment to this payee, and how many transfers
+    the account made in the last hour. Read without locks: a score is advice, not a balance."""
+    moved = Transfer.status.in_([TransferStatus.COMPLETED, TransferStatus.REVERSED])
+    paid_before = session.scalar(select(func.count()).select_from(Transfer).where(
+        Transfer.kind == TransferKind.TRANSFER, Transfer.from_account_id == from_id,
+        Transfer.to_account_id == to_id, moved))
+    last_hour = session.scalar(select(func.count()).select_from(Transfer).where(
+        Transfer.kind == TransferKind.TRANSFER, Transfer.from_account_id == from_id, moved,
+        Transfer.created_at >= datetime.now(UTC) - timedelta(hours=1)))
+    return paid_before == 0, last_hour
 
 
 def pay_interest(
@@ -244,6 +276,7 @@ def _execute(
     reference: str,
     daily_limit_cents: int | None = None,
     reversal_of_id: uuid.UUID | None = None,
+    fraud: FraudResult | None = None,
 ) -> Transfer:
     if amount_cents <= 0:
         raise InvalidRequest("amount must be positive")
@@ -256,7 +289,8 @@ def _execute(
 
     try:
         result = _apply(
-            session, kind, idempotency_key, from_id, to_id, amount_cents, reference, daily_limit_cents, reversal_of_id
+            session, kind, idempotency_key, from_id, to_id, amount_cents, reference, daily_limit_cents, reversal_of_id,
+            fraud,
         )
         session.commit()
         return result
@@ -272,7 +306,8 @@ def _execute(
         raise
 
 
-def _apply(session, kind, idempotency_key, from_id, to_id, amount_cents, reference, daily_limit_cents, reversal_of_id):
+def _apply(session, kind, idempotency_key, from_id, to_id, amount_cents, reference, daily_limit_cents, reversal_of_id,
+           fraud=None):
     original = None
     if reversal_of_id is not None:
         # Lock the original so two different reversal requests are serialised
@@ -286,7 +321,10 @@ def _apply(session, kind, idempotency_key, from_id, to_id, amount_cents, referen
     locked = {account_id: _locked(session, Account, account_id) for account_id in sorted({from_id, to_id})}
     source, target = locked[from_id], locked[to_id]
 
+    # The bank's own rules first (funds, limits, frozen accounts), then the fraud decision
     reason = _reject_reason(session, kind, source, target, amount_cents, daily_limit_cents)
+    if reason is None and fraud is not None:
+        reason = fraud.reject_reason
     record = Transfer(
         idempotency_key=idempotency_key,
         kind=kind,
@@ -298,6 +336,7 @@ def _apply(session, kind, idempotency_key, from_id, to_id, amount_cents, referen
         status=TransferStatus.REJECTED if reason else TransferStatus.COMPLETED,
         reject_reason=reason,
         reversal_of_id=reversal_of_id,
+        fraud_check=fraud.check if fraud is not None else None,
     )
     session.add(record)
     if reason:

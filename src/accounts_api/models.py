@@ -50,6 +50,14 @@ class RejectReason(StrEnum):
     ACCOUNT_CLOSED = "account_closed"
     CURRENCY_MISMATCH = "currency_mismatch"
     DAILY_LIMIT_EXCEEDED = "daily_limit_exceeded"
+    FRAUD_SUSPECTED = "fraud_suspected"                  # fraud-check blocked it
+    FRAUD_CHECK_UNAVAILABLE = "fraud_check_unavailable"  # fraud-check down or slow, and over the fallback limit
+
+
+class FraudCheck(StrEnum):
+    ALLOW = "allow"
+    BLOCK = "block"
+    UNAVAILABLE = "unavailable"   # fraud-check down or slow: see reject_reason for what happened next
 
 
 class EodStatus(StrEnum):
@@ -111,6 +119,8 @@ class Transfer(Base):
     reference: Mapped[str] = mapped_column(String(140), default="")
     status: Mapped[TransferStatus] = mapped_column(_enum(TransferStatus))
     reject_reason: Mapped[RejectReason | None] = mapped_column(_enum(RejectReason))
+    # Customer transfers only, when fraud-check is configured; NULL = not checked (or not applicable)
+    fraud_check: Mapped[FraudCheck | None] = mapped_column(_enum(FraudCheck))
     # unique: a transfer can be reversed at most once
     reversal_of_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("transfers.id"), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
