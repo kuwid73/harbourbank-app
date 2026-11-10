@@ -67,6 +67,7 @@ def _transfer_response(request: Request, response: Response, transfer: Transfer)
         "kind": transfer.kind.value,
         "status": transfer.status.value,
         "reject_reason": transfer.reject_reason.value if transfer.reject_reason else None,
+        "fraud_check": transfer.fraud_check.value if transfer.fraud_check else None,
         "amount_cents": transfer.amount_cents,
         "replayed": transfer.replayed,
     })
@@ -178,6 +179,7 @@ def create_transfer(body: TransferCreate, key: IdempotencyKey, request: Request,
         db, idempotency_key=key, from_account_id=body.from_account_id, to_account_id=body.to_account_id,
         amount_cents=body.amount_cents, reference=body.reference,
         daily_limit_cents=request.app.state.settings.daily_transfer_limit_cents,
+        fraud=request.app.state.fraud, request_id=request.state.request_id,
     )
     return _transfer_response(request, response, transfer)
 

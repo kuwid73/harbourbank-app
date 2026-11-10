@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     interest_rate_bps: int = Field(default=150, ge=0, le=2_000)
     db_pool_size: int = Field(default=5, ge=1)
     db_pool_timeout_seconds: float = Field(default=5.0, gt=0)
+    # fraud-check, called before each customer transfer; unset = no fraud check
+    fraud_check_url: str | None = None
+    fraud_check_timeout_seconds: float = Field(default=0.3, gt=0, le=5)
+    # When fraud-check is down or slow: transfers up to this go through unchecked, larger ones are rejected
+    fraud_check_fallback_limit_cents: int = Field(default=100_00, ge=0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     environment: str = "local"   # dev / qa / prod; shown in the UI and logs
     app_version: str = "dev"
