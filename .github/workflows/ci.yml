@@ -1,6 +1,7 @@
 # Harbour Bank accounts-api pipeline
-#   every PR and push : lint + tests (real Postgres via testcontainers)
-#   push to main      : build image -> vulnerability scan -> push to GHCR -> bump dev in harbourbank-gitops
+#   every PR and push : lint + tests (real Postgres via testcontainers), build image -> vulnerability scan
+#   push to main      : ... -> push to GHCR -> bump dev in harbourbank-gitops
+# Scanning on PRs means a vulnerable image is caught before merge, not after.
 # ArgoCD then deploys dev from Git; CI never talks to the cluster.
 #
 # Third-party actions are pinned to full commit SHAs (tags can be moved to malicious code)
@@ -44,7 +45,6 @@ jobs:
 
   image:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -72,6 +72,10 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.meta.outputs.version }}
             GIT_SHA=${{ github.sha }}
+          # The runtime stage applies Debian security updates. Never reuse it from cache, or a
+          # cached layer would keep yesterday's packages; pull so the base is the latest too.
+          pull: true
+          no-cache-filters: runtime
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Vulnerability scan (fail on fixable HIGH/CRITICAL)
@@ -81,12 +85,15 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      # Below here only for main: a PR's image is built and scanned, never pushed
+      - if: github.event_name == 'push'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push
+        if: github.event_name == 'push'
         id: push
         env:
           TAG: ${{ steps.meta.outputs.tag }}
@@ -98,6 +105,7 @@ jobs:
 
   deploy-dev:
     needs: image
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # One bump at a time, never cancelled: each commit's bump must land in order

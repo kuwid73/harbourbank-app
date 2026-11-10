@@ -21,7 +21,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
 # --- runtime: slim image, no build tools, non-root ---------------------------------------
-FROM python:3.13-slim-trixie
+FROM python:3.13-slim-trixie AS runtime
+# Apply Debian security fixes published since the upstream image was built, so a fixable CVE in
+# the base doesn't wait for upstream to rebuild. CI rebuilds this stage without cache every time.
+RUN apt-get update \
+ && apt-get upgrade --yes --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
 # pip (and its vendored urllib3/msgpack) is unused at runtime - uv installed everything in the
 # build stage - so remove it rather than carry its CVEs. No package manager also means less to abuse.
 RUN python -m pip uninstall --yes --no-cache-dir pip \
