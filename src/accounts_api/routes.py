@@ -210,6 +210,23 @@ def info(request: Request):
             "version": settings.app_version, "git_sha": settings.git_sha}
 
 
+@router.get("/dependencies", tags=["ops"])
+def dependencies(request: Request):
+    """Can this pod reach the services it calls? Read-only, always 200: it informs (the
+    post-deployment smoke test reads it) and is deliberately NOT part of readiness. A fraud-check
+    outage has a fallback and must not take the API out of service.
+    Drill 5 (2026-11-11): a NetworkPolicy change cut accounts-api off from fraud-check while every
+    pod stayed Ready; this is the check that would have shown it."""
+    fraud = request.app.state.fraud
+    if fraud is None:
+        return {"fraud_check": {"status": "not_configured"}}
+    error = fraud.ping()
+    if error is None:
+        return {"fraud_check": {"status": "ok"}}
+    log.warning("dependency unreachable", extra={"dependency": "fraud_check", "error": error})
+    return {"fraud_check": {"status": "unreachable", "error": error}}
+
+
 @router.get("/healthz", tags=["ops"])
 def healthz():
     """Liveness: the process is running. Deliberately does NOT check the database -
