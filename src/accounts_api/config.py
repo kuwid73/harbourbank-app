@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     fraud_check_timeout_seconds: float = Field(default=0.3, gt=0, le=5)
     # When fraud-check is down or slow: transfers up to this go through unchecked, larger ones are rejected
     fraud_check_fallback_limit_cents: int = Field(default=100_00, ge=0)
+    # ...and only while the account has made fewer transfers than this in the last hour. Without it an
+    # account takeover (many small transfers) passes straight through an outage (drill 5, 2026-11-11).
+    # Stricter than fraud-check's own hourly rule on purpose: these transfers are unchecked.
+    fraud_check_fallback_max_transfers_per_hour: int = Field(default=5, ge=0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     environment: str = "local"   # dev / qa / prod; shown in the UI and logs
     app_version: str = "dev"

@@ -96,9 +96,9 @@ def fake():
     f.close()
 
 
-def _assess(client, amount=50_00):
+def _assess(client, amount=50_00, last_hour=0):
     return client.assess(from_account_id=uuid.uuid4(), to_account_id=uuid.uuid4(), amount_cents=amount,
-                         currency="USD", first_payment_to_payee=True, transfers_last_hour=0)
+                         currency="USD", first_payment_to_payee=True, transfers_last_hour=last_hour)
 
 
 def test_client_allow_and_block(fake):
@@ -130,6 +130,14 @@ def test_an_outage_lets_small_transfers_through_unchecked_and_rejects_large_ones
     assert time.perf_counter() - start < 1.0     # each call gave up at the timeout, not after the 1 s delay
     if break_it == "down":
         fake.server = type("Closed", (), {"shutdown": lambda s: None, "server_close": lambda s: None})()
+
+
+def test_an_outage_stops_an_account_that_has_already_made_several_transfers(fake):
+    fake.status = 500
+    client = FraudClient(fake.url, 0.2, 100_00, fallback_max_transfers_per_hour=5)
+    fourth, fifth = _assess(client, 50_00, last_hour=4), _assess(client, 50_00, last_hour=5)
+    assert (fourth.check, fourth.reject_reason) == (FraudCheck.UNAVAILABLE, None)
+    assert (fifth.check, fifth.reject_reason) == (FraudCheck.UNAVAILABLE, RejectReason.FRAUD_CHECK_UNAVAILABLE)
 
 
 # --- accounts-api with fraud-check switched on -----------------------------------------------------
@@ -208,6 +216,24 @@ def test_during_an_outage_small_payments_continue_unchecked(bank, fake):
     assert (large.json()["reject_reason"], large.json()["fraud_check"]) == ("fraud_check_unavailable", "unavailable")
     assert (_balance(bank, alice), _balance(bank, bob)) == (400_00, 100_00)
     assert 'bank_fraud_checks_total{outcome="timeout"}' in bank.get("/metrics").text
+
+
+def test_during_an_outage_an_account_takeover_is_cut_short(database_url, fake):
+    """Drill 5: with fraud-check cut off, a takeover's 12 small transfers all went through."""
+    fake.status = 500
+    app = create_app(Settings(database_url=database_url, fraud_check_url=fake.url, fraud_check_timeout_seconds=0.2,
+                              fraud_check_fallback_limit_cents=50_00,
+                              fraud_check_fallback_max_transfers_per_hour=5))
+    with TestClient(app) as c:
+        victim, mule, friend = _account(c, 2_000_00), _account(c, 0), _account(c, 500_00)
+
+        results = [_send(c, victim, mule, 45_00) for _ in range(12)]
+
+        assert [r.status_code for r in results] == [201] * 5 + [422] * 7
+        assert {r.json()["reject_reason"] for r in results[5:]} == {"fraud_check_unavailable"}
+        assert (_balance(c, victim), _balance(c, mule)) == (2_000_00 - 5 * 45_00, 5 * 45_00)
+        assert _send(c, friend, victim, 60_00).status_code == 422      # over the amount limit
+        assert _send(c, friend, victim, 20_00).status_code == 201      # another account is unaffected
 
 
 def test_dependencies_reports_whether_fraud_check_is_reachable(bank, fake, database_url):
