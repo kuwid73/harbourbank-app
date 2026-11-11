@@ -41,6 +41,15 @@ last hour. It holds no customer data. A transfer is blocked when its score reach
 | Too many transfers in an hour | 70 | `FRAUD_MAX_TRANSFERS_PER_HOUR` (10) |
 | Large amount | 40 | `FRAUD_LARGE_AMOUNT_CENTS` (500000) |
 
+**What the rules catch:**
+- **A scam** (authorised push-payment fraud): the real customer is tricked into paying a criminal, so the
+  payment is genuinely theirs. The tell is one large first payment to a payee they have never paid.
+- **An account takeover:** a criminal gets into the customer's online banking (stolen password, phished
+  one-time code, malware) and empties the account quickly, often with many small transfers that each look
+  ordinary. The tell is speed: far more transfers in an hour than the account normally makes. The rule
+  limits the loss: the transfers before the threshold have already gone.
+- Both usually pay a **mule account**, one opened or rented to receive stolen money and move it on.
+
 **How accounts-api uses it:**
 - The check runs only for customer transfers, not deposits, interest or reversals, and only when `FRAUD_CHECK_URL` is set.
 - The call is made **before any row is locked**, with the database connection given back, so a slow fraud check holds no locks or connections.
