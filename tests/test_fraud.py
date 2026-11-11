@@ -72,6 +72,11 @@ class FakeFraudCheck:
                 self.end_headers()
                 self.wfile.write(answer)
 
+            def do_GET(self):      # fraud-check's /readyz
+                self.send_response(fake.status)
+                self.end_headers()
+                self.wfile.write(b'{"status": "ready"}')
+
             def log_message(self, *args):
                 pass
 
@@ -203,6 +208,23 @@ def test_during_an_outage_small_payments_continue_unchecked(bank, fake):
     assert (large.json()["reject_reason"], large.json()["fraud_check"]) == ("fraud_check_unavailable", "unavailable")
     assert (_balance(bank, alice), _balance(bank, bob)) == (400_00, 100_00)
     assert 'bank_fraud_checks_total{outcome="timeout"}' in bank.get("/metrics").text
+
+
+def test_dependencies_reports_whether_fraud_check_is_reachable(bank, fake, database_url):
+    assert bank.get("/dependencies").json() == {"fraud_check": {"status": "ok"}}
+
+    fake.status = 503                       # up, but not ready
+    assert bank.get("/dependencies").json() == {"fraud_check": {"status": "unreachable", "error": "HTTP 503"}}
+
+    fake.close()                            # cut off, as in drill 5: connection refused
+    fake.server = type("Closed", (), {"shutdown": lambda s: None, "server_close": lambda s: None})()
+    r = bank.get("/dependencies")
+    assert r.status_code == 200             # it informs; it is not a probe
+    assert r.json()["fraud_check"]["status"] == "unreachable" and "refused" in r.json()["fraud_check"]["error"]
+    assert bank.get("/readyz").status_code == 200       # readiness doesn't depend on fraud-check
+
+    with TestClient(create_app(Settings(database_url=database_url))) as c:
+        assert c.get("/dependencies").json() == {"fraud_check": {"status": "not_configured"}}
 
 
 def test_without_a_url_there_is_no_fraud_check(database_url):

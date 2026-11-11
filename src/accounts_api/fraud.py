@@ -29,7 +29,8 @@ class FraudResult:
 
 class FraudClient:
     def __init__(self, url: str, timeout_seconds: float, fallback_limit_cents: int):
-        self.url = url.rstrip("/") + "/score"
+        self.base_url = url.rstrip("/")
+        self.url = self.base_url + "/score"
         self.timeout_seconds = timeout_seconds
         self.fallback_limit_cents = fallback_limit_cents
 
@@ -63,6 +64,19 @@ class FraudClient:
             return FraudResult(FraudCheck.BLOCK, RejectReason.FRAUD_SUSPECTED, answer.get("score"),
                                tuple(answer.get("reasons", ())))
         return FraudResult(FraudCheck.ALLOW, None, answer.get("score"), tuple(answer.get("reasons", ())))
+
+    def ping(self) -> str | None:
+        """Can this pod reach fraud-check right now? None if so, otherwise what went wrong.
+        Read-only (fraud-check's /readyz), for GET /dependencies and the post-deployment smoke test."""
+        try:
+            with urllib.request.urlopen(self.base_url + "/readyz", timeout=self.timeout_seconds) as response:  # noqa: S310
+                return None if response.status == 200 else f"HTTP {response.status}"
+        except urllib.error.HTTPError as exc:
+            return f"HTTP {exc.code}"
+        except urllib.error.URLError as exc:
+            return str(exc.reason)
+        except (OSError, ValueError) as exc:     # includes TimeoutError
+            return f"{type(exc).__name__}: {exc}"
 
     def _unavailable(self, outcome: str, start: float, amount_cents: int, request_id: str | None,
                      error: str | None = None) -> FraudResult:

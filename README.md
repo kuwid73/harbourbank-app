@@ -58,6 +58,7 @@ last hour. It holds no customer data. A transfer is blocked when its score reach
 - **If fraud-check is down, slow (past `FRAUD_CHECK_TIMEOUT_SECONDS`) or answers badly:**
   - transfers up to `FRAUD_CHECK_FALLBACK_LIMIT_CENTS` go through, marked `unavailable` (unchecked, for review)
   - larger ones are rejected with reason `fraud_check_unavailable`
+- **`GET /dependencies`** reports whether this pod can reach fraud-check right now (`ok`, `unreachable` with the error, or `not_configured`). Read-only and always 200: the post-deployment smoke test reads it. It is not part of readiness, because an outage has the fallback above.
 - **Metrics:** `bank_fraud_checks_total{outcome}` (allow, block, timeout, error) and `bank_fraud_check_duration_seconds`, plus fraud-check's own `fraud_check_decisions_total`.
 
 ## Configuration
