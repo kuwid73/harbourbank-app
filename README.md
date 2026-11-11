@@ -56,8 +56,9 @@ last hour. It holds no customer data. A transfer is blocked when its score reach
 - **The bank's own rules come first.** A transfer that fails on funds, limits or a frozen account is rejected for that reason.
 - **A block** is rejected with reason `fraud_suspected`, and no money moves. Each transfer records `fraud_check` (`allow`, `block` or `unavailable`).
 - **If fraud-check is down, slow (past `FRAUD_CHECK_TIMEOUT_SECONDS`) or answers badly:**
-  - transfers up to `FRAUD_CHECK_FALLBACK_LIMIT_CENTS` go through, marked `unavailable` (unchecked, for review)
-  - larger ones are rejected with reason `fraud_check_unavailable`
+  - a transfer goes through, marked `unavailable` (unchecked, for review), only if it is up to `FRAUD_CHECK_FALLBACK_LIMIT_CENTS` **and** the account has made fewer than `FRAUD_CHECK_FALLBACK_MAX_TRANSFERS_PER_HOUR` transfers in the last hour
+  - anything else is rejected with reason `fraud_check_unavailable`
+  - the amount limit caps each unchecked transfer; the hourly cap stops an account takeover (many small transfers) from passing straight through an outage
 - **`GET /dependencies`** reports whether this pod can reach fraud-check right now (`ok`, `unreachable` with the error, or `not_configured`). Read-only and always 200: the post-deployment smoke test reads it. It is not part of readiness, because an outage has the fallback above.
 - **Metrics:** `bank_fraud_checks_total{outcome}` (allow, block, timeout, error) and `bank_fraud_check_duration_seconds`, plus fraud-check's own `fraud_check_decisions_total`.
 
@@ -73,5 +74,6 @@ last hour. It holds no customer data. A transfer is blocked when its score reach
 | `FRAUD_CHECK_URL` | *(unset: no fraud check)* | fraud-check's base URL, e.g. `http://fraud-check:8000` |
 | `FRAUD_CHECK_TIMEOUT_SECONDS` | `0.3` | Give up on fraud-check after this; no retry |
 | `FRAUD_CHECK_FALLBACK_LIMIT_CENTS` | `10000` | While fraud-check is unavailable, transfers up to this go through unchecked |
+| `FRAUD_CHECK_FALLBACK_MAX_TRANSFERS_PER_HOUR` | `5` | ...but only while the account has made fewer transfers than this in the last hour |
 | `LOG_LEVEL` | `INFO` | |
 | `APP_VERSION`, `GIT_SHA` | `dev`, `unknown` | Set by CI; exported as the `app_info` metric |

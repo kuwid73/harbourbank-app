@@ -58,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "fraud_check_url": settings.fraud_check_url,
             "fraud_check_timeout_seconds": settings.fraud_check_timeout_seconds,
             "fraud_check_fallback_limit_cents": settings.fraud_check_fallback_limit_cents,
+            "fraud_check_fallback_max_transfers_per_hour": settings.fraud_check_fallback_max_transfers_per_hour,
         })
         yield
         engine.dispose()
@@ -67,7 +68,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.sessions = sessionmaker(engine, expire_on_commit=False)
     app.state.fraud = FraudClient(settings.fraud_check_url, settings.fraud_check_timeout_seconds,
-                                  settings.fraud_check_fallback_limit_cents) if settings.fraud_check_url else None
+                                  settings.fraud_check_fallback_limit_cents,
+                                  settings.fraud_check_fallback_max_transfers_per_hour) \
+        if settings.fraud_check_url else None
 
     @app.exception_handler(ledger.LedgerError)
     async def ledger_error(request: Request, exc: ledger.LedgerError):

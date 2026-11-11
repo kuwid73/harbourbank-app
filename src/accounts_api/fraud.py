@@ -1,8 +1,11 @@
 """The call to fraud-check, made before a customer transfer moves money.
 
 fraud-check is a dependency that can be slow or down, so the call has a short timeout and no
-retry, and an outage has a deliberate fallback: transfers up to FRAUD_CHECK_FALLBACK_LIMIT_CENTS
-go through marked "unavailable" (unchecked, for later review), larger ones are rejected.
+retry, and an outage has a deliberate fallback. A transfer goes through marked "unavailable"
+(unchecked, for later review) only if it is small (up to FRAUD_CHECK_FALLBACK_LIMIT_CENTS) and the
+account has made few transfers in the last hour (fewer than FRAUD_CHECK_FALLBACK_MAX_TRANSFERS_PER_HOUR).
+Anything else is rejected. The amount limit caps each unchecked transfer; the hourly cap stops an
+account takeover, which is many small transfers, from passing straight through an outage.
 A slow fraud check must not make every payment slow, and its outage must not stop small payments.
 """
 import json
@@ -28,11 +31,13 @@ class FraudResult:
 
 
 class FraudClient:
-    def __init__(self, url: str, timeout_seconds: float, fallback_limit_cents: int):
+    def __init__(self, url: str, timeout_seconds: float, fallback_limit_cents: int,
+                 fallback_max_transfers_per_hour: int = 5):
         self.base_url = url.rstrip("/")
         self.url = self.base_url + "/score"
         self.timeout_seconds = timeout_seconds
         self.fallback_limit_cents = fallback_limit_cents
+        self.fallback_max_transfers_per_hour = fallback_max_transfers_per_hour
 
     def assess(self, *, from_account_id: uuid.UUID, to_account_id: uuid.UUID, amount_cents: int, currency: str,
                first_payment_to_payee: bool, transfers_last_hour: int, request_id: str | None = None) -> FraudResult:
@@ -50,13 +55,15 @@ class FraudClient:
             if decision not in ("allow", "block"):
                 raise ValueError(f"unexpected decision {decision!r}")
         except TimeoutError:
-            return self._unavailable("timeout", start, amount_cents, request_id)
+            return self._unavailable("timeout", start, amount_cents, transfers_last_hour, request_id)
         except urllib.error.URLError as exc:
             # urlopen wraps a connect timeout in URLError
             outcome = "timeout" if isinstance(exc.reason, TimeoutError) else "error"
-            return self._unavailable(outcome, start, amount_cents, request_id, error=str(exc.reason))
+            return self._unavailable(outcome, start, amount_cents, transfers_last_hour, request_id,
+                                     error=str(exc.reason))
         except (OSError, ValueError, KeyError) as exc:
-            return self._unavailable("error", start, amount_cents, request_id, error=f"{type(exc).__name__}: {exc}")
+            return self._unavailable("error", start, amount_cents, transfers_last_hour, request_id,
+                                     error=f"{type(exc).__name__}: {exc}")
 
         metrics.FRAUD_CHECKS.labels(outcome=decision).inc()
         metrics.FRAUD_DURATION.observe(time.perf_counter() - start)
@@ -78,13 +85,20 @@ class FraudClient:
         except (OSError, ValueError) as exc:     # includes TimeoutError
             return f"{type(exc).__name__}: {exc}"
 
-    def _unavailable(self, outcome: str, start: float, amount_cents: int, request_id: str | None,
-                     error: str | None = None) -> FraudResult:
+    def _unavailable(self, outcome: str, start: float, amount_cents: int, transfers_last_hour: int,
+                     request_id: str | None, error: str | None = None) -> FraudResult:
         metrics.FRAUD_CHECKS.labels(outcome=outcome).inc()
         metrics.FRAUD_DURATION.observe(time.perf_counter() - start)
-        allowed = amount_cents <= self.fallback_limit_cents
+        if amount_cents > self.fallback_limit_cents:
+            fallback = "rejected: over the amount limit"
+        elif transfers_last_hour >= self.fallback_max_transfers_per_hour:
+            fallback = "rejected: too many transfers this hour"
+        else:
+            fallback = "allowed unchecked"
+        allowed = fallback == "allowed unchecked"
         log.warning("fraud check unavailable", extra={
             "request_id": request_id, "outcome": outcome, "error": error, "amount_cents": amount_cents,
-            "fallback": "allowed unchecked" if allowed else "rejected",
-            "fallback_limit_cents": self.fallback_limit_cents})
+            "transfers_last_hour": transfers_last_hour, "fallback": fallback,
+            "fallback_limit_cents": self.fallback_limit_cents,
+            "fallback_max_transfers_per_hour": self.fallback_max_transfers_per_hour})
         return FraudResult(FraudCheck.UNAVAILABLE, None if allowed else RejectReason.FRAUD_CHECK_UNAVAILABLE)
