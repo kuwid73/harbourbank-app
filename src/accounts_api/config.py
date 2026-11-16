@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     db_pool_timeout_seconds: float = Field(default=5.0, gt=0)
     # fraud-check, called before each customer transfer; unset = no fraud check
     fraud_check_url: str | None = None
-    fraud_check_timeout_seconds: float = Field(default=0.3, gt=0, le=5)
+    # At least 50 ms: a call takes a few milliseconds, and a timeout below that fails most checks while
+    # fraud-check is healthy (drill C, 2026-11-16: 0.001 passed every validation and broke dev)
+    fraud_check_timeout_seconds: float = Field(default=0.3, ge=0.05, le=5)
     # When fraud-check is down or slow: transfers up to this go through unchecked, larger ones are rejected
     fraud_check_fallback_limit_cents: int = Field(default=100_00, ge=0)
     # ...and only while the account has made fewer transfers than this in the last hour. Without it an

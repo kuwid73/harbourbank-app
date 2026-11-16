@@ -24,6 +24,19 @@ def test_invalid_variable_names_it(monkeypatch, capsys):
     assert "is invalid" in line["msg"]
 
 
+def test_a_fraud_check_timeout_too_short_to_ever_succeed_is_refused(monkeypatch, capsys):
+    """Drill C (2026-11-16): 0.001 was a valid setting, and nine fraud checks in ten timed out."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db/bank")
+    monkeypatch.setenv("FRAUD_CHECK_TIMEOUT_SECONDS", "0.001")
+    with pytest.raises(SystemExit):
+        load_settings()
+    line = json.loads(capsys.readouterr().err.strip().splitlines()[0])
+    assert line["variable"] == "FRAUD_CHECK_TIMEOUT_SECONDS" and "is invalid" in line["msg"]
+
+    monkeypatch.setenv("FRAUD_CHECK_TIMEOUT_SECONDS", "0.05")     # the floor itself is allowed
+    assert load_settings().fraud_check_timeout_seconds == 0.05
+
+
 @pytest.mark.parametrize("url", ["postgresql://u:p@db:5432/bank", "postgres://u:p@db:5432/bank"])
 def test_plain_postgres_urls_get_the_driver_name(url):
     assert normalize_db_url(url) == "postgresql+psycopg://u:p@db:5432/bank"
