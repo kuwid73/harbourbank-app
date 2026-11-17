@@ -72,7 +72,7 @@ last hour. It holds no customer data. A transfer is blocked when its score reach
 | `DB_POOL_SIZE` | `5` | Connections per process (no overflow) |
 | `DB_POOL_TIMEOUT_SECONDS` | `5` | Wait for a free connection before failing with `db_pool_exhausted` |
 | `FRAUD_CHECK_URL` | *(unset: no fraud check)* | fraud-check's base URL, e.g. `http://fraud-check:8000` |
-| `FRAUD_CHECK_TIMEOUT_SECONDS` | `0.3` | Give up on fraud-check after this; no retry |
+| `FRAUD_CHECK_TIMEOUT_SECONDS` | `0.3` | Give up on fraud-check after this; no retry. From `0.05` to `5`: anything shorter is refused at startup, because it would time out a healthy fraud-check |
 | `FRAUD_CHECK_FALLBACK_LIMIT_CENTS` | `10000` | While fraud-check is unavailable, transfers up to this go through unchecked |
 | `FRAUD_CHECK_FALLBACK_MAX_TRANSFERS_PER_HOUR` | `5` | ...but only while the account has made fewer transfers than this in the last hour |
 | `LOG_LEVEL` | `INFO` | |
